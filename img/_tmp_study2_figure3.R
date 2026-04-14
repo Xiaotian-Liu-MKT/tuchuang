@@ -2,8 +2,10 @@ suppressPackageStartupMessages({
   library(ggplot2)
 })
 
+fixed_bar_fills <- c("white", "grey70")
+
 spec <- list(
-  output = "study2-figure3.svg",
+  output = "figure3-regenerated-preview.png",
   width = 6.2,
   height = 4.8,
   dpi = 320,
@@ -13,17 +15,16 @@ spec <- list(
   x_label = "Product anthropomorphism",
   y_label = "Purchase intention",
   legend_title = "Sweetener type",
-  y_limits = c(0, 7),
-  y_breaks = 0:7,
+  y_limits = c(1, 7),
+  y_breaks = 1:7,
   show_error_bars = FALSE,
   factor_a_levels = c("Absent", "Present"),
   factor_b_levels = c("Artificial", "Natural"),
-  fills = c("white", "grey70"),
   cells = data.frame(
     factor_a = c("Absent", "Absent", "Present", "Present"),
     factor_b = c("Artificial", "Natural", "Artificial", "Natural"),
     mean = c(2.88, 4.30, 2.83, 3.49),
-    error = c(NA_real_, NA_real_, NA_real_, NA_real_),
+    error = c(0, 0, 0, 0),
     stringsAsFactors = FALSE
   ),
   simple_effect_labels = c("p < .001", "p = .011"),
@@ -52,31 +53,23 @@ theme_jcr <- function(base_size = 12, base_family = "Times New Roman") {
 save_jcr_plot <- function(plot, output, width, height, dpi = 320) {
   ext <- tolower(tools::file_ext(output))
   if (ext == "svg") {
-    ggplot2::ggsave(
-      filename = output,
-      plot = plot,
-      width = width,
-      height = height,
-      units = "in",
-      device = grDevices::svg
-    )
-  } else {
-    ggplot2::ggsave(
-      filename = output,
-      plot = plot,
-      width = width,
-      height = height,
-      units = "in",
-      dpi = dpi
-    )
+    stop("Statistical figure templates currently support PNG only. Use a .png output path.")
   }
+  ggplot2::ggsave(
+    filename = output,
+    plot = plot,
+    width = width,
+    height = height,
+    units = "in",
+    dpi = dpi
+  )
 }
 
 make_brackets_2x2 <- function(df, y_limits, simple_labels = NULL, interaction_label = NULL) {
   offset <- 0.18
   y_range <- diff(y_limits)
   if (!is.finite(y_range) || y_range <= 0) {
-    y_range <- max(df$label_y) - min(0, df$mean)
+    y_range <- max(df$label_y) - min(0, df$plot_mean)
   }
   if (!is.finite(y_range) || y_range <= 0) {
     y_range <- 1
@@ -141,16 +134,22 @@ make_brackets_2x2 <- function(df, y_limits, simple_labels = NULL, interaction_la
   )
 }
 
+base_min <- spec$y_limits[1]
+plot_breaks <- spec$y_breaks - base_min
+plot_limits <- c(0, spec$y_limits[2] - base_min)
+
 df <- spec$cells
 df$factor_a <- factor(df$factor_a, levels = spec$factor_a_levels)
 df$factor_b <- factor(df$factor_b, levels = spec$factor_b_levels)
-df$top_value <- if (isTRUE(spec$show_error_bars)) df$mean + df$error else df$mean
+df$plot_mean <- df$mean - base_min
+df$top_value <- if (isTRUE(spec$show_error_bars)) df$plot_mean + df$error else df$plot_mean
 df$label_y <- df$top_value + 0.03 * diff(spec$y_limits)
 
-brackets <- make_brackets_2x2(df, spec$y_limits, spec$simple_effect_labels, spec$interaction_label)
-spec$y_limits[2] <- brackets$y_upper
+brackets <- make_brackets_2x2(df, plot_limits, spec$simple_effect_labels, spec$interaction_label)
+plot_limits[2] <- brackets$y_upper
 
-p <- ggplot(df, aes(x = factor_a, y = mean, fill = factor_b)) +
+# Shift the plotting baseline to 1 so bars start at the visible rating-scale axis.
+p <- ggplot(df, aes(x = factor_a, y = plot_mean, fill = factor_b)) +
   geom_col(position = position_dodge(width = 0.72), width = 0.62, color = "black", linewidth = 0.35) +
   geom_text(
     aes(y = label_y, label = format(round(mean, spec$mean_digits), nsmall = spec$mean_digits)),
@@ -159,9 +158,13 @@ p <- ggplot(df, aes(x = factor_a, y = mean, fill = factor_b)) +
     size = 3.4,
     family = "Times New Roman"
   ) +
-  scale_fill_manual(values = stats::setNames(spec$fills, spec$factor_b_levels)) +
-  scale_y_continuous(breaks = spec$y_breaks, expand = expansion(mult = c(0, 0.02))) +
-  coord_cartesian(ylim = spec$y_limits, clip = "off") +
+  scale_fill_manual(values = stats::setNames(fixed_bar_fills[seq_along(spec$factor_b_levels)], spec$factor_b_levels)) +
+  scale_y_continuous(
+    breaks = plot_breaks,
+    labels = plot_breaks + base_min,
+    expand = expansion(mult = c(0, 0.02))
+  ) +
+  coord_cartesian(ylim = plot_limits, clip = "off") +
   labs(
     title = spec$title,
     subtitle = spec$subtitle,
@@ -171,16 +174,6 @@ p <- ggplot(df, aes(x = factor_a, y = mean, fill = factor_b)) +
     fill = spec$legend_title
   ) +
   theme_jcr()
-
-if (isTRUE(spec$show_error_bars)) {
-  p <- p +
-    geom_errorbar(
-      aes(ymin = mean - error, ymax = mean + error),
-      position = position_dodge(width = 0.72),
-      width = 0.12,
-      linewidth = 0.45
-    )
-}
 
 if (!is.null(brackets$segments)) {
   p <- p +
